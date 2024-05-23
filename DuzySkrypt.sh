@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# File to store backup paths
+backup_paths_file="/home/kacper/Pulpit/DuzySkrypt/backup_paths"
+destination_paths_file="/home/kacper/Pulpit/DuzySkrypt/destination_paths"
+
 # Function to display an error message dialog
 show_error() {
     zenity --error --text "$1" --title "Error"
@@ -38,6 +42,51 @@ confirm_backup_options() {
     fi
 }
 
+# Function to save backup paths to file
+save_backup_paths() {
+    echo "$source_folder" >> "$backup_paths_file"
+    echo "$destination_folder" >> "$destination_paths_file"
+}
+
+# Function to read backup paths from file
+read_backup_paths() {
+    if [ -f "$backup_paths_file" ]; then
+        while IFS= read -r line; do
+            backup_paths+=("$line")
+        done < "$backup_paths_file"
+    fi
+}
+
+read_destination_paths() {
+    if [ -f "$destination_paths_file" ]; then
+        while IFS= read -r line; do
+            destination_paths+=("$line")
+        done < "$destination_paths_file"
+    fi
+}
+
+# Function to check for changes in backup paths
+check_backup_changes() {
+    read_backup_paths
+    read_destination_paths
+    for i in "${!backup_paths[@]}"; do
+        path="${backup_paths[$i]}"
+        dest="${destination_paths[$i]}"
+        if [ ! -d "$path" ]; then
+            zenity --warning --text "Backup path '$path' no longer exists."
+        elif [ "$(find "$path" -type f | wc -l)" -eq 0 ]; then
+            zenity --warning --text "Backup path '$path' contains no files."
+        else
+            diff_output=$(diff -qr "$path" "$dest")
+            if [ -n "$diff_output" ]; then
+                echo -e "${path} \e[31mChanged\e[0m"
+            else
+                echo -e "${path} \e[32mUnchanged\e[0m"
+            fi
+        fi
+    done
+}
+
 perform_backup() {
     # Check if the destination folder exists, if not, create it
     mkdir -p "$destination_folder"
@@ -56,6 +105,9 @@ perform_backup() {
             mkdir "$destination_folder"
         fi
     fi
+
+    # Save backup paths to file
+    save_backup_paths
 
     # Change to the source directory
     cd "$source_folder"
@@ -144,26 +196,27 @@ display_menu() {
     # Prepend selected source and destination folders to the options list
     options=("Run Backup" "Select Source Folder: $source_folder" "Select Destination Folder: $destination_folder")
 
-    choice=$(zenity --list --title="Backup Menu" --column="Options" "${options[@]}" --ok-label="Run Backup" --cancel-label="Exit")
-
+    choice=$(zenity --list --title="Backup Menu" --column="Options" "${options[@]}" --ok-label="Run Backup" --cancel-label="Exit" "Check Backup Integrity")
 
     case $choice in
         "Run Backup")
             if [ -z "$source_folder" ] || [ -z "$destination_folder" ]; then
-                    show_error "Source and destination folders are required. Please select them first."
-                    display_menu "$source_folder" "$destination_folder"
-                fi
-                if confirm_backup; then
-                    confirm_backup_options
-                    perform_backup
-                else
-                    zenity --info --text "Backup operation cancelled." --title "Backup Cancelled"
-                fi
-                display_menu "$source_folder" "$destination_folder" ;;
+                show_error "Source and destination folders are required. Please select them first."
+                display_menu "$source_folder" "$destination_folder"
+            fi
+            if confirm_backup; then
+                confirm_backup_options
+                perform_backup
+            else
+                zenity --info --text "Backup operation cancelled." --title "Backup Cancelled"
+            fi
+            display_menu "$source_folder" "$destination_folder" ;;
         "Select Source Folder: $source_folder")
             select_source_folder ;;
         "Select Destination Folder: $destination_folder")
             select_destination_folder ;;
+        "Check Backup Integrity")
+            check_backup_changes ;;
     esac
 
     ret=$?
