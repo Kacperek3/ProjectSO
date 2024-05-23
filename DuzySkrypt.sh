@@ -12,17 +12,28 @@ confirm_backup() {
 
 # Function to ask if the user wants to create a zip file or normal backup
 confirm_backup_options() {
-    backup_choices=$(zenity --list --checklist --title="Backup Options" --text="Select backup options:" --column="Select" --column="Option" TRUE "Normal Backup" FALSE "Create Zip")
+    backup_choices=$(zenity --list --checklist --title="Backup Options" --text="Select backup options:" --column="Select" --column="Option" TRUE "Normal Backup" FALSE "Create Zip" FALSE "Password Protect")
     create_zip=false
     create_normal_backup=false
+    password_protect=false
+
     if [[ $backup_choices == *"Normal Backup"* ]]; then
         create_normal_backup=true
     fi
     if [[ $backup_choices == *"Create Zip"* ]]; then
         create_zip=true
     fi
+    if [[ $backup_choices == *"Password Protect"* ]]; then
+        password_protect=true
+    fi
+
     if ! $create_normal_backup && ! $create_zip; then
         show_error "No backup option selected. Exiting."
+        exit 1
+    fi
+
+    if $password_protect && ! $create_zip; then
+        show_error "Password protection can only be applied to zip files. Exiting."
         exit 1
     fi
 }
@@ -61,12 +72,47 @@ perform_backup() {
 
     # Create zip backup
     if $create_zip; then
-        zip -r "$destination_folder/backup.zip" .
+        if $password_protect; then
+            password=$(zenity --password --title="Enter Password for Zip File")
+            if [ -z "$password" ]; then
+                show_error "No password entered. Exiting."
+                exit 1
+            fi
+            zip -r -e --password "$password" "$destination_folder/backup.zip" .
+        else
+            zip -r "$destination_folder/backup.zip" .
+        fi
+
         if [ $? -eq 0 ]; then
             zenity --info --text "Backup zip created successfully." --title "Zip Backup Complete"
         else
             show_error "Failed to create zip file."
         fi
+
+        # Set permissions on the backup
+        set_permissions
+    fi
+}
+
+# Function to set permissions on the backup
+set_permissions() {
+    permissions=$(zenity --entry --title="Set Permissions" --text="Enter permissions (e.g., 755):")
+    if [ -z "$permissions" ]; then
+        show_error "No permissions entered. Exiting."
+        exit 1
+    fi
+
+    if [[ $create_normal_backup == true ]]; then
+        chmod -R "$permissions" "$destination_folder"
+    fi
+    if [[ $create_zip == true ]]; then
+        unzip -l "$destination_folder/backup.zip" | awk 'NR>3 {print $4}' | xargs chmod "$permissions"
+    fi
+
+    if [ $? -eq 0 ]; then
+        zenity --info --text "Permissions set successfully." --title "Permissions Set"
+    else
+        show_error "Failed to set permissions."
     fi
 }
 
@@ -75,7 +121,7 @@ select_source_folder() {
     source_folder=$(zenity --file-selection --directory --title="Select Source Folder" | sed 's/^"//' | sed 's/"$//')
     if [ -z "$source_folder" ]; then
         show_error "No source folder selected. Exiting."
-        exit 1
+        display_menu
     fi
     display_menu "$source_folder" "$destination_folder"
 }
@@ -85,7 +131,7 @@ select_destination_folder() {
     destination_folder=$(zenity --file-selection --directory --title="Select Destination Folder" | sed 's/^"//' | sed 's/"$//')
     if [ -z "$destination_folder" ]; then
         show_error "No destination folder selected. Exiting."
-        exit 1
+        display_menu
     fi
     display_menu "$source_folder" "$destination_folder"
 }
@@ -96,28 +142,35 @@ display_menu() {
     destination_folder="$2"
 
     # Prepend selected source and destination folders to the options list
-    options=("Select Source Folder: $source_folder" "Select Destination Folder: $destination_folder" "Backup")
+    options=("Run Backup" "Select Source Folder: $source_folder" "Select Destination Folder: $destination_folder")
 
-    choice=$(zenity --list --title="Backup Menu" --column="Options" "${options[@]}" --ok-label="Backup" --cancel-label="Quit")
+    choice=$(zenity --list --title="Backup Menu" --column="Options" "${options[@]}" --ok-label="Run Backup" --cancel-label="Exit")
+
 
     case $choice in
+        "Run Backup")
+            if [ -z "$source_folder" ] || [ -z "$destination_folder" ]; then
+                    show_error "Source and destination folders are required. Please select them first."
+                    display_menu "$source_folder" "$destination_folder"
+                fi
+                if confirm_backup; then
+                    confirm_backup_options
+                    perform_backup
+                else
+                    zenity --info --text "Backup operation cancelled." --title "Backup Cancelled"
+                fi
+                display_menu "$source_folder" "$destination_folder" ;;
         "Select Source Folder: $source_folder")
             select_source_folder ;;
         "Select Destination Folder: $destination_folder")
             select_destination_folder ;;
-        "Backup")
-            if [ -z "$source_folder" ] || [ -z "$destination_folder" ]; then
-                show_error "Source and destination folders are required. Please select them first."
-                display_menu "$source_folder" "$destination_folder"
-            fi
-            if confirm_backup; then
-                confirm_backup_options
-                perform_backup
-            else
-                zenity --info --text "Backup operation cancelled." --title "Backup Cancelled"
-            fi
-            display_menu "$source_folder" "$destination_folder" ;;
     esac
+
+    ret=$?
+
+    if ((ret==0)); then
+        exit 1
+    fi
 }
 
 # Display the initial menu
