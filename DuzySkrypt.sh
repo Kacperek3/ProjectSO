@@ -65,27 +65,57 @@ read_destination_paths() {
     fi
 }
 
-# Function to check for changes in backup paths
 check_backup_changes() {
     read_backup_paths
     read_destination_paths
+
+    backup_info=()
+
     for i in "${!backup_paths[@]}"; do
         path="${backup_paths[$i]}"
         dest="${destination_paths[$i]}"
+        status_message="Backup path: $path\n"
+
         if [ ! -d "$path" ]; then
-            zenity --warning --text "Backup path '$path' no longer exists."
+            status_message+="Status: Backup path no longer exists.\n"
         elif [ "$(find "$path" -type f | wc -l)" -eq 0 ]; then
-            zenity --warning --text "Backup path '$path' contains no files."
+            status_message+="Status: Backup path contains no files.\n"
         else
             diff_output=$(diff -qr "$path" "$dest")
             if [ -n "$diff_output" ]; then
-                echo -e "${path} \e[31mChanged\e[0m"
+                status_message+="Status: changed !!!\n"
             else
-                echo -e "${path} \e[32mUnchanged\e[0m"
+                status_message+="Status: unchanged ^\n"
             fi
         fi
+
+        backup_info+=("$path" "$status_message")
     done
+
+    # Create the list for Zenity --list dialog
+    list_entries=()
+    for i in "${!backup_paths[@]}"; do
+        list_entries+=("$((i+1))" "${backup_paths[$i]}")
+    done
+
+    # Display the Zenity --list dialog
+    selected_backup=$(zenity --list --title="Backup Status" --column="Backup" --column="Backup Path" "${list_entries[@]}" --width=600 --height=400)
+
+    # If a selection was made, display detailed info for the selected backup
+    if [ -n "$selected_backup" ]; then
+        selected_index=$((selected_backup))
+        #zenity --text-info --width=600 --height=400 --title="Backup Details" --text="${backup_info[selected_index*2+1]}"
+        echo -e "${backup_info[selected_index*2+1]}" | zenity --text-info --width=600 --height=400 --title="Backup Status"
+    fi
+
+    # Clear the arrays
+    backup_info=()
+    backup_paths=()
+    destination_paths=()
+    
+    display_menu
 }
+
 
 perform_backup() {
     # Check if the destination folder exists, if not, create it
