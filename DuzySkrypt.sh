@@ -93,7 +93,7 @@ check_backup_changes() {
             status_message+="Status: Backup path no longer exists.\n"
             backup_changed[$i]=false
         elif [ "$(find "$path" -type f | wc -l)" -eq 0 ]; then
-            status_message+="Status: Backup path contains no files.\n"
+            status_message    beka="Status: Backup path contains no files.\n"
             backup_changed[$i]=false
         else
             diff_output=$(diff -qr "$path" "$dest")
@@ -117,7 +117,7 @@ check_backup_changes() {
 
     # Display the Zenity --list dialog
     selected_backup=$(zenity --list --title="Backup Status" --column="Backup" --column="Backup Path" "${list_entries[@]}" --width=600 --height=400)
-    # If a selection was made, display detailed info for the selected backup
+    # If a selection was made, display detailed info for the selecte    d backup
     if [ -n "$selected_backup" ]; then
         selected_index=$((selected_backup - 1))
         echo -e "${backup_info[selected_index*2+1]}" | zenity --text-info --width=600 --height=400 --title="Backup Status"
