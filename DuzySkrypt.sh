@@ -33,12 +33,12 @@ confirm_backup_options() {
 
     if ! $create_normal_backup && ! $create_zip; then
         show_error "No backup option selected. Exiting."
-        exit 1
+        display_menu
     fi
 
     if $password_protect && ! $create_zip; then
         show_error "Password protection can only be applied to zip files. Exiting."
-        exit 1
+        display_menu
     fi
 }
 
@@ -65,11 +65,24 @@ read_destination_paths() {
     fi
 }
 
+update_backup() {
+    selected_index=$((selected_backup - 1))
+    path="${backup_paths[$selected_index]}"
+    dest="${destination_paths[$selected_index]}"
+    
+    # Copy new or modified files from source to destination
+    rsync -av --update "$path/" "$dest/"
+    
+    # Display message indicating completion
+    zenity --info --title="Backup Updated" --text="Backup has been updated successfully."
+}
+
 check_backup_changes() {
     read_backup_paths
     read_destination_paths
 
     backup_info=()
+    backup_changed=()
 
     for i in "${!backup_paths[@]}"; do
         path="${backup_paths[$i]}"
@@ -78,14 +91,18 @@ check_backup_changes() {
 
         if [ ! -d "$path" ]; then
             status_message+="Status: Backup path no longer exists.\n"
+            backup_changed[$i]=false
         elif [ "$(find "$path" -type f | wc -l)" -eq 0 ]; then
             status_message+="Status: Backup path contains no files.\n"
+            backup_changed[$i]=false
         else
             diff_output=$(diff -qr "$path" "$dest")
             if [ -n "$diff_output" ]; then
                 status_message+="Status: changed !!!\n"
+                backup_changed[$i]=true
             else
                 status_message+="Status: unchanged ^\n"
+                backup_changed[$i]=false
             fi
         fi
 
@@ -100,16 +117,24 @@ check_backup_changes() {
 
     # Display the Zenity --list dialog
     selected_backup=$(zenity --list --title="Backup Status" --column="Backup" --column="Backup Path" "${list_entries[@]}" --width=600 --height=400)
-
     # If a selection was made, display detailed info for the selected backup
     if [ -n "$selected_backup" ]; then
-        selected_index=$((selected_backup))
-        #zenity --text-info --width=600 --height=400 --title="Backup Details" --text="${backup_info[selected_index*2+1]}"
+        selected_index=$((selected_backup - 1))
         echo -e "${backup_info[selected_index*2+1]}" | zenity --text-info --width=600 --height=400 --title="Backup Status"
+
+        #echo "${backup_changed[selected_index]}"
+        #echo "$selected_index"
+
+        if [ "${backup_changed[selected_index]}" = true ]; then
+            if zenity --question --title="Update Backup" --text="Changes have been detected in the backup. Do you want to update it?" --width=300; then
+                update_backup "${backup_paths[selected_index]}" "${destination_paths[selected_index]}"
+            fi
+        fi
     fi
 
     # Clear the arrays
     backup_info=()
+    backup_changed=()
     backup_paths=()
     destination_paths=()
     
@@ -170,10 +195,10 @@ perform_backup() {
         else
             show_error "Failed to create zip file."
         fi
-
-        # Set permissions on the backup
-        set_permissions
+        
     fi
+    # Set permissions on the backup
+    set_permissions
 }
 
 # Function to set permissions on the backup
